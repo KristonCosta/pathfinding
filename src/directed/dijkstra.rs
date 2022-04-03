@@ -253,6 +253,73 @@ where
     (parents, target_reached)
 }
 
+/// Foo foo foo
+pub fn all_dijkstra_radius<N, C, FN, IN>(
+    start: &N,
+    mut successors: FN,
+    max_cost: C,
+) -> HashMap<N, (N, C)>
+where
+    N: Eq + Hash + Clone,
+    C: Zero + Ord + Copy,
+    FN: FnMut(&N, C) -> IN,
+    IN: IntoIterator<Item = (N, C)>,
+{
+    let parents = {
+        let mut to_see = BinaryHeap::new();
+        to_see.push(SmallestHolder {
+            cost: Zero::zero(),
+            index: 0,
+        });
+        let mut parents: FxIndexMap<N, (usize, C)> = FxIndexMap::default();
+        parents.insert(start.clone(), (usize::max_value(), Zero::zero()));
+        while let Some(SmallestHolder { cost, index }) = to_see.pop() {
+            let successors = {
+                let (node, &(_, c)) = parents.get_index(index).unwrap();
+                // We may have inserted a node several time into the binary heap if we found
+                // a better way to access it. Ensure that we are currently dealing with the
+                // best path and discard the others.
+                if cost > c {
+                    continue;
+                }
+                successors(node, cost)
+            };
+            for (successor, move_cost) in successors {
+                let new_cost = cost + move_cost;
+                if new_cost > max_cost {
+                    continue;
+                }
+                let n;
+                match parents.entry(successor) {
+                    Vacant(e) => {
+                        n = e.index();
+                        e.insert((index, new_cost));
+                    }
+                    Occupied(mut e) => {
+                        if e.get().1 > new_cost {
+                            n = e.index();
+                            e.insert((index, new_cost));
+                        } else {
+                            continue;
+                        }
+                    }
+                }
+
+                to_see.push(SmallestHolder {
+                    cost: new_cost,
+                    index: n,
+                });
+            }
+        }
+        parents
+    };
+    parents
+        .iter()
+        .skip(1)
+        .map(|(n, (p, c))| (n.clone(), (parents.get_index(*p).unwrap().0.clone(), *c)))
+        .collect()
+}
+
 /// Build a path leading to a target according to a parents map, which must
 /// contain no loop. This function can be used after [`dijkstra_all`] or
 /// [`dijkstra_partial`] to build a path from a starting point to a reachable target.
